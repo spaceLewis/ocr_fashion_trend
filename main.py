@@ -174,12 +174,17 @@ if image_paths:
             )
         response.raise_for_status()
 
+        #  Vérification du code de statut de la réponse. Une erreur sera levée si le code n'est pas 2xx (succès) grâce à `response.raise_for_status()`.
+        print(f"Code de statut de la réponse : {response.status_code}")
+        if response.status_code != 200:
+            raise ValueError(f"Erreur lors de l'appel à l'API Hugging Face : {response.status_code} - {response.text}")
+
         segmentation_results = response.json()
         if not isinstance(segmentation_results, list):  # Vérifie que la réponse est bien une liste
             raise ValueError(f"Réponse inattendue de l'API Hugging Face : {segmentation_results}")
 
         # création du masque à partir des résultats de segmentation
-        width, height = 400, 600  # limiter les dimensions
+        width, height = get_image_dimensions(single_image_path)
         segmentation_mask = create_masks(segmentation_results, width, height)
         print("Masque généré avec succès.")
         # en option, sauvegarder le masque en image
