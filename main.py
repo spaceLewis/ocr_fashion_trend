@@ -13,7 +13,7 @@ load_dotenv()
 
 # TODO: Modifiez ces valeurs selon votre configuration
 image_dir = "assets/IMG"  # Exemple : si vous êtes sur Colab et avez uploadé un dossier
-max_images = 1  # Commençons avec peu d'images
+max_images = 3  # Commençons avec peu d'images
 
 api_token = os.getenv("token")
 
@@ -35,9 +35,10 @@ API_URL_LOCAL = "http://localhost:8000/segment"  # Renvoie le JSON (label/mask) 
 
 # Mode local si api_local=true dans .env, sinon mode online (Hugging Face)
 api_local = os.getenv("api_local", "false").strip().lower() == "true"
+api_url = API_URL
 if api_local:
-    API_URL = API_URL_LOCAL
-print(f"Mode : {'local' if api_local else 'online'} -> {API_URL}")
+    api_url = API_URL_LOCAL
+print(f"Mode : {'local' if api_local else 'online'} -> {api_url}")
 
 headers = {
     "Authorization": f"Bearer {api_token}"
@@ -149,57 +150,96 @@ def create_masks(results, width, height):
 
 ##########################################################################################################
 
+def process_single_image(image_paths, api_local, api_url, headers):
+
+    if image_paths:
+        # single_image_path = image_paths[0] # première image de la liste
+        # single_image_path = image_paths[0] # première image de la liste
+        single_image_path = image_paths
+        print(f"Traitement de l'image : {single_image_path}")
+
+        try:
+            with open(single_image_path, "rb") as image_file:  # Ouvrir l'image en mode binaire pour la lecture
+                image_data = image_file.read()
+
+            # Déterminer le `Content-Type` (jpeg ou png).
+            if single_image_path.lower().endswith(".png"):
+                content_type = "image/png"
+            elif single_image_path.lower().endswith(".jpg") or single_image_path.lower().endswith(".jpeg"):
+                content_type = "image/jpeg"
+            else:
+                raise ValueError(f"Unsupported image format for file: {single_image_path}")
+
+            if api_local:
+                # L'API locale (FastAPI) attend un upload multipart avec le champ "file"
+                response = requests.post(
+                    api_url,
+                    files={"file": (os.path.basename(single_image_path), image_data, content_type)},
+                    timeout=120,
+                )
+            else:
+                response = requests.post(
+                    api_url,
+                    headers={**headers, "Content-Type": content_type},
+                    data=image_data,
+                    timeout=120,
+                )
+            response.raise_for_status()
+
+            #  Vérification du code de statut de la réponse
+            print(f"Code de statut de la réponse : {response.status_code}")
+            if response.status_code != 200:
+                raise ValueError(f"Erreur lors de l'appel à l'API Hugging Face : {response.status_code} - {response.text}")
+
+            segmentation_results = response.json()
+            if not isinstance(segmentation_results, list):  # Vérifie que la réponse est bien une liste
+                raise ValueError(f"Réponse inattendue de l'API Hugging Face : {segmentation_results}")
+
+            # création du masque à partir des résultats de segmentation
+            width, height = get_image_dimensions(single_image_path)
+            segmentation_mask = create_masks(segmentation_results, width, height)
+            print("Masque généré avec succès.")
+            # en option, sauvegarder le masque en image
+            segmentation_mask_image = Image.fromarray(segmentation_mask.astype(np.uint8)) # Convertir le masque en image
+            # sauvegarde du masque avec un nom basé sur le nom de l'image originale
+            segmentation_mask_image.save(f"assets/Mask/mask_{os.path.basename(single_image_path)}")
+            print(f"Masque sauvegardé sous 'assets/Mask/mask_{os.path.basename(single_image_path)}'.")
+
+        except Exception as e:
+            print(f"Une erreur est survenue : {e}")
+    else:
+        print("Aucune image à traiter. Vérifiez la configuration de 'image_dir' et 'max_images'.")
+
+##########################################################################################################
+
+def segment_images_batch(list_of_image_paths):
+    """
+    Segmente une liste d'images en utilisant l'API Hugging Face.
+
+    Args:
+        list_of_image_paths (list): Liste des chemins vers les images.
+
+    Returns:
+        list: Liste des masques de segmentation (tableaux NumPy).
+              Contient None si une image n'a pas pu être traitée.
+    """
+    batch_segmentations = []
+
+    # N'oubliez pas de mettre une pause entre chaque appel API !
+    for single_image_path in list_of_image_paths:
+        try:
+            segmentation_mask = process_single_image(single_image_path, api_local, api_url, headers)
+            batch_segmentations.append(segmentation_mask)
+        except Exception as e:
+            print(f"Erreur lors du traitement de {single_image_path} : {e}")
+            batch_segmentations.append(None)
+    return batch_segmentations
+
+# Appeler la fonction pour segmenter les images listées dans image_paths
 if image_paths:
-    single_image_path = image_paths[0] # première image de la liste
-    print(f"Traitement de l'image : {single_image_path}")
-
-    try:
-        with open(single_image_path, "rb") as image_file:  # Ouvrir l'image en mode binaire pour la lecture
-            image_data = image_file.read()
-
-        # Déterminer le `Content-Type` (jpeg ou png).
-        if single_image_path.lower().endswith(".png"):
-            content_type = "image/png"
-        elif single_image_path.lower().endswith(".jpg") or single_image_path.lower().endswith(".jpeg"):
-            content_type = "image/jpeg"
-        else:
-            raise ValueError(f"Unsupported image format for file: {single_image_path}")
-
-        if api_local:
-            # L'API locale (FastAPI) attend un upload multipart avec le champ "file"
-            response = requests.post(
-                API_URL,
-                files={"file": (os.path.basename(single_image_path), image_data, content_type)},
-                timeout=120,
-            )
-        else:
-            response = requests.post(
-                API_URL,
-                headers={**headers, "Content-Type": content_type},
-                data=image_data,
-                timeout=120,
-            )
-        response.raise_for_status()
-
-        #  Vérification du code de statut de la réponse
-        print(f"Code de statut de la réponse : {response.status_code}")
-        if response.status_code != 200:
-            raise ValueError(f"Erreur lors de l'appel à l'API Hugging Face : {response.status_code} - {response.text}")
-
-        segmentation_results = response.json()
-        if not isinstance(segmentation_results, list):  # Vérifie que la réponse est bien une liste
-            raise ValueError(f"Réponse inattendue de l'API Hugging Face : {segmentation_results}")
-
-        # création du masque à partir des résultats de segmentation
-        width, height = get_image_dimensions(single_image_path)
-        segmentation_mask = create_masks(segmentation_results, width, height)
-        print("Masque généré avec succès.")
-        # en option, sauvegarder le masque en image
-        segmentation_mask_image = Image.fromarray(segmentation_mask.astype(np.uint8)) # Convertir le masque en image
-        segmentation_mask_image.save("assets/Mask/segmentation_mask_image.png")
-        print("Masque sauvegardé sous 'segmentation_mask_image.png'.")
-
-    except Exception as e:
-        print(f"Une erreur est survenue : {e}")
+    print(f"\nTraitement de {len(image_paths)} image(s) en batch...")
+    batch_seg_results = segment_images_batch(image_paths)
+    print("Traitement en batch terminé.")
 else:
-    print("Aucune image à traiter. Vérifiez la configuration de 'image_dir' et 'max_images'.")
+    batch_seg_results = []
+    print("Aucune image à traiter en batch.")
