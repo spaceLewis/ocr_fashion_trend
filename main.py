@@ -174,7 +174,7 @@ if image_paths:
             )
         response.raise_for_status()
 
-        #  Vérification du code de statut de la réponse. Une erreur sera levée si le code n'est pas 2xx (succès) grâce à `response.raise_for_status()`.
+        #  Vérification du code de statut de la réponse
         print(f"Code de statut de la réponse : {response.status_code}")
         if response.status_code != 200:
             raise ValueError(f"Erreur lors de l'appel à l'API Hugging Face : {response.status_code} - {response.text}")
