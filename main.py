@@ -157,7 +157,14 @@ if image_paths:
         with open(single_image_path, "rb") as image_file:  # Ouvrir l'image en mode binaire pour la lecture
             image_data = image_file.read()
 
-        content_type = "image/png"
+        # Déterminer le `Content-Type` (jpeg ou png).
+        if single_image_path.lower().endswith(".png"):
+            content_type = "image/png"
+        elif single_image_path.lower().endswith(".jpg") or single_image_path.lower().endswith(".jpeg"):
+            content_type = "image/jpeg"
+        else:
+            raise ValueError(f"Unsupported image format for file: {single_image_path}")
+
         if api_local:
             # L'API locale (FastAPI) attend un upload multipart avec le champ "file"
             response = requests.post(
