@@ -31,6 +31,14 @@ if not api_token:
 
 # API_URL = "https://api-inference.huggingface.co/models/sayeed99/segformer_b3_clothes" # Remplacez ... par le bon endpoint.
 API_URL = "https://router.huggingface.co/hf-inference/models/sayeed99/segformer_b3_clothes"
+API_URL_LOCAL = "http://localhost:8000/segment"  # Renvoie le JSON (label/mask) comme l'API Hugging Face
+
+# Mode local si api_local=true dans .env, sinon mode online (Hugging Face)
+api_local = os.getenv("api_local", "false").strip().lower() == "true"
+if api_local:
+    API_URL = API_URL_LOCAL
+print(f"Mode : {'local' if api_local else 'online'} -> {API_URL}")
+
 headers = {
     "Authorization": f"Bearer {api_token}"
     # Le "Content-Type" sera ajouté dynamiquement lors de l'envoi de l'image
@@ -150,17 +158,34 @@ if image_paths:
             image_data = image_file.read()
 
         content_type = "image/png"
-        response = requests.post(
-            API_URL,
-            headers={**headers, "Content-Type": content_type},
-            data=image_data,
-            timeout=120,
-        )
+        if api_local:
+            # L'API locale (FastAPI) attend un upload multipart avec le champ "file"
+            response = requests.post(
+                API_URL,
+                files={"file": (os.path.basename(single_image_path), image_data, content_type)},
+                timeout=120,
+            )
+        else:
+            response = requests.post(
+                API_URL,
+                headers={**headers, "Content-Type": content_type},
+                data=image_data,
+                timeout=120,
+            )
         response.raise_for_status()
 
         segmentation_results = response.json()
         if not isinstance(segmentation_results, list):  # Vérifie que la réponse est bien une liste
             raise ValueError(f"Réponse inattendue de l'API Hugging Face : {segmentation_results}")
+
+        # création du masque à partir des résultats de segmentation
+        width, height = 400, 600  # limiter les dimensions
+        segmentation_mask = create_masks(segmentation_results, width, height)
+        print("Masque généré avec succès.")
+        # en option, sauvegarder le masque en image
+        segmentation_mask_image = Image.fromarray(segmentation_mask.astype(np.uint8)) # Convertir le masque en image
+        segmentation_mask_image.save("assets/Mask/segmentation_mask_image.png")
+        print("Masque sauvegardé sous 'segmentation_mask_image.png'.")
 
     except Exception as e:
         print(f"Une erreur est survenue : {e}")
