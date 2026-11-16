@@ -4,3 +4,4 @@ matplotlib
 numpy
 huggingface_hub>=2.4.0
 python-dotenv
+opencv-python-headless
