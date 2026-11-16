@@ -204,6 +204,7 @@ def process_single_image(image_paths, api_local, api_url, headers):
             # sauvegarde du masque avec un nom basé sur le nom de l'image originale
             segmentation_mask_image.save(f"assets/Mask/mask_{os.path.basename(single_image_path)}")
             print(f"Masque sauvegardé sous 'assets/Mask/mask_{os.path.basename(single_image_path)}'.")
+            return segmentation_mask
 
         except Exception as e:
             print(f"Une erreur est survenue : {e}")
@@ -235,6 +236,38 @@ def segment_images_batch(list_of_image_paths):
             batch_segmentations.append(None)
     return batch_segmentations
 
+##########################################################################################################
+
+def display_segmented_images_batch(original_image_paths, segmentation_masks, display):
+    """
+    Affiche les images originales et leurs masques segmentés.
+
+    Args:
+        original_image_paths (list): Liste des chemins des images originales.
+        segmentation_masks (list): Liste des masques segmentés (NumPy arrays).
+    """
+    # Matplotlib, ça vous parle ?
+    # Alors... au travail ! 😉
+    import matplotlib.pyplot as plt
+    for img_path, mask in zip(original_image_paths, segmentation_masks):
+        if mask is not None:
+            fig, ax = plt.subplots(1, 2, figsize=(10, 5))
+            ax[0].imshow(Image.open(img_path))
+            ax[0].set_title("Image originale")
+            ax[0].axis("off")
+            ax[1].imshow(mask, cmap="gray")
+            ax[1].set_title("Masque segmenté")
+            ax[1].axis("off")
+            # plt.show() # Affichage si besoin
+            # sauvegarde de la comparaison
+            comparison_path = f"resultats_segmentation/{os.path.basename(img_path).split('.')[0]}_comparison.png"
+            fig.savefig(comparison_path)
+            print(f"Comparaison sauvegardée dans {comparison_path}")
+        else:
+            print(f"Aucun masque disponible pour {img_path}")
+
+##########################################################################################################
+
 # Appeler la fonction pour segmenter les images listées dans image_paths
 if image_paths:
     print(f"\nTraitement de {len(image_paths)} image(s) en batch...")
@@ -243,3 +276,10 @@ if image_paths:
 else:
     batch_seg_results = []
     print("Aucune image à traiter en batch.")
+
+# Afficher les résultats du batch
+print("Affichage des résultats du batch...")
+if batch_seg_results:
+    display_segmented_images_batch(image_paths, batch_seg_results)
+else:
+    print("Aucun résultat de segmentation à afficher.")
