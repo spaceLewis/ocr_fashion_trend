@@ -2,6 +2,7 @@
 import base64
 import io
 import os
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,6 +11,9 @@ from dotenv import load_dotenv
 from PIL import Image
 
 import cv2
+
+start_time = time.perf_counter()
+COST_PER_SECOND = 0.00012
 
 load_dotenv()
 
@@ -270,15 +274,31 @@ def segment_images_batch(list_of_image_paths):
               Contient None si une image n'a pas pu être traitée.
     """
     batch_segmentations = []
+    successful_images = 0
+    successful_elapsed = 0.0
 
     # N'oubliez pas de mettre une pause entre chaque appel API !
     for single_image_path in list_of_image_paths:
+        image_start_time = time.perf_counter()
+        segmentation_mask = None
         try:
             segmentation_mask = process_single_image(single_image_path, api_local, api_url, headers)
             batch_segmentations.append(segmentation_mask)
         except Exception as e:
             print(f"Erreur lors du traitement de {single_image_path} : {e}")
             batch_segmentations.append(None)
+        finally:
+            elapsed = time.perf_counter() - image_start_time
+            if segmentation_mask is not None:
+                successful_images += 1
+                successful_elapsed += elapsed
+            print(f"Temps de traitement de {single_image_path} : {elapsed:.2f} secondes.")
+            print(f"Coût estimé pour {single_image_path} : {elapsed * COST_PER_SECOND:.6f} $.")
+    if successful_images:
+        estimated_cost = successful_elapsed / successful_images * 500_000 * COST_PER_SECOND
+        print(f"Coût estimé pour 500 000 images (moyenne des segmentations réussies) : {estimated_cost:.2f} $.")
+    else:
+        print("Impossible d'estimer le coût pour 500 000 images : aucune segmentation réussie.")
     return batch_segmentations
 
 ##########################################################################################################
@@ -400,4 +420,7 @@ for idx, (img, msk) in enumerate(paires):
     print(f"Résultat sauvegardé dans {result_path}")
 
 print("Tous les résultats ont été sauvegardés.")
+total_elapsed = time.perf_counter() - start_time
+print(f"Temps total d'exécution : {total_elapsed:.2f} secondes.")
+print(f"Coût total estimé : {total_elapsed * COST_PER_SECOND:.6f} $.")
 
