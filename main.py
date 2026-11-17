@@ -17,7 +17,7 @@ start_time = time.perf_counter()
 COST_PER_SECOND = 0.00012
 
 load_dotenv()
-only_test = os.getenv("only_test")
+only_test = os.getenv("only_test", "false").strip().lower() == "true"
 
 # Colormap personnalisé pour 4 classes (valeurs 1 à 4) en BGR
 custom_colormap = {
@@ -459,6 +459,7 @@ print(f"\nBilan IoU : {len(iou_results)} paire(s) comparée(s).")
 if all_foreground_scores:
     print(f"IoU moyenne globale hors fond : {np.mean(all_foreground_scores):.1%}")
     for class_id, scores in sorted(class_scores.items()):
-        print(f"  Classe {class_id} : IoU moyenne = {np.mean(scores):.1%}")
+        class_name = legend_labels[str(class_id)]
+        print(f"  Classe {class_id} ({class_name}) : IoU moyenne = {np.mean(scores):.1%}")
 else:
     print("IoU moyenne globale hors fond indisponible : aucune classe présente.")
