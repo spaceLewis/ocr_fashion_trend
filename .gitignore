@@ -1,5 +1,4 @@
 .venv/
 .env
-resultats_segmentation/
 __pycache__/
 assets/all/

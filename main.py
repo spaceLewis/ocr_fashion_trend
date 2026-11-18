@@ -18,7 +18,8 @@ only_test = os.getenv("only_test", "false").strip().lower() == "true"
 
 # TODO: Modifiez ces valeurs selon votre configuration
 image_dir = "assets/IMG"  # Exemple : si vous êtes sur Colab et avez uploadé un dossier
-max_images = 50 # nombre maximum d'images
+max_images = os.getenv("max_images", "3") # nombre maximum d'images
+max_images = int(max_images)
 
 api_token = os.getenv("token")
 
