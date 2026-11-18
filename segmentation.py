@@ -1,0 +1,208 @@
+import base64
+import io
+import os
+import time
+
+import numpy as np
+import requests
+from PIL import Image
+
+
+CLASS_MAPPING = {
+    "Background": 0,
+    "Hat": 1,
+    "Hair": 2,
+    "Sunglasses": 3,
+    "Upper-clothes": 4,
+    "Skirt": 5,
+    "Pants": 6,
+    "Dress": 7,
+    "Belt": 8,
+    "Left-shoe": 9,
+    "Right-shoe": 10,
+    "Face": 11,
+    "Left-leg": 12,
+    "Right-leg": 13,
+    "Left-arm": 14,
+    "Right-arm": 15,
+    "Bag": 16,
+    "Scarf": 17
+}
+
+
+class ImageSegmenter:
+    def __init__(self, api_local, api_url, headers, cost_per_second):
+        self.api_local = api_local
+        self.api_url = api_url
+        self.headers = headers
+        self.cost_per_second = cost_per_second
+
+    def get_image_dimensions(self, img_path):
+        """
+        Get the dimensions of an image.
+
+        Args:
+            img_path (str): Path to the image.
+
+        Returns:
+            tuple: (width, height) of the image.
+        """
+        original_image = Image.open(img_path)
+        return original_image.size
+
+    def decode_base64_mask(self, base64_string, width, height):
+        """
+        Decode a base64-encoded mask into a NumPy array.
+
+        Args:
+            base64_string (str): Base64-encoded mask.
+            width (int): Target width.
+            height (int): Target height.
+
+        Returns:
+            np.ndarray: Single-channel mask array.
+        """
+        mask_data = base64.b64decode(base64_string)
+        mask_image = Image.open(io.BytesIO(mask_data))
+        mask_array = np.array(mask_image)
+        if len(mask_array.shape) == 3:
+            mask_array = mask_array[:, :, 0]  # Take first channel if RGB
+        mask_image = Image.fromarray(mask_array).resize((width, height), Image.NEAREST)
+        return np.array(mask_image)
+
+    def create_masks(self, results, width, height):
+        """
+        Combine multiple class masks into a single segmentation mask.
+
+        Args:
+            results (list): List of dictionaries with 'label' and 'mask' keys.
+            width (int): Target width.
+            height (int): Target height.
+
+        Returns:
+            np.ndarray: Combined segmentation mask with class indices.
+        """
+        combined_mask = np.zeros((height, width), dtype=np.uint8)  # Initialize with Background (0)
+
+        # Process non-Background masks first
+        for result in results:
+            label = result['label']
+            class_id = CLASS_MAPPING.get(label, 0)
+            if class_id == 0:  # Skip Background
+                continue
+            mask_array = self.decode_base64_mask(result['mask'], width, height)
+            combined_mask[mask_array > 0] = class_id
+
+        # Process Background last to ensure it doesn't overwrite other classes unnecessarily
+        # (Though the model usually provides non-overlapping masks for distinct classes other than background)
+        for result in results:
+            if result['label'] == 'Background':
+                mask_array = self.decode_base64_mask(result['mask'], width, height)
+                # Apply background only where no other class has been assigned yet
+                # This logic might need adjustment based on how the model defines 'Background'
+                # For this model, it seems safer to just let non-background overwrite it first.
+                # A simple application like this should be fine: if Background mask says pixel is BG, set it to 0.
+                # However, a more robust way might be to only set to background if combined_mask is still 0 (initial value)
+                combined_mask[mask_array > 0] = 0 # Class ID for Background is 0
+
+        return combined_mask
+
+    def process_single_image(self, image_paths):
+
+        if image_paths:
+            # single_image_path = image_paths[0] # première image de la liste
+            # single_image_path = image_paths[0] # première image de la liste
+            single_image_path = image_paths
+            print(f"Traitement de l'image : {single_image_path}")
+
+            try:
+                with open(single_image_path, "rb") as image_file:  # Ouvrir l'image en mode binaire pour la lecture
+                    image_data = image_file.read()
+
+                # Déterminer le `Content-Type` (jpeg ou png).
+                if single_image_path.lower().endswith(".png"):
+                    content_type = "image/png"
+                elif single_image_path.lower().endswith(".jpg") or single_image_path.lower().endswith(".jpeg"):
+                    content_type = "image/jpeg"
+                else:
+                    raise ValueError(f"Unsupported image format for file: {single_image_path}")
+
+                if self.api_local:
+                    # L'API locale (FastAPI) attend un upload multipart avec le champ "file"
+                    response = requests.post(
+                        self.api_url,
+                        files={"file": (os.path.basename(single_image_path), image_data, content_type)},
+                        timeout=120,
+                    )
+                else:
+                    response = requests.post(
+                        self.api_url,
+                        headers={**self.headers, "Content-Type": content_type},
+                        data=image_data,
+                        timeout=120,
+                    )
+                response.raise_for_status()
+
+                #  Vérification du code de statut de la réponse
+                print(f"Code de statut de la réponse : {response.status_code}")
+                if response.status_code != 200:
+                    raise ValueError(f"Erreur lors de l'appel à l'API Hugging Face : {response.status_code} - {response.text}")
+
+                segmentation_results = response.json()
+                if not isinstance(segmentation_results, list):  # Vérifie que la réponse est bien une liste
+                    raise ValueError(f"Réponse inattendue de l'API Hugging Face : {segmentation_results}")
+
+                # création du masque à partir des résultats de segmentation
+                width, height = self.get_image_dimensions(single_image_path)
+                segmentation_mask = self.create_masks(segmentation_results, width, height)
+                print("Masque généré avec succès.")
+                # en option, sauvegarder le masque en image
+                segmentation_mask_image = Image.fromarray(segmentation_mask.astype(np.uint8)) # Convertir le masque en image
+                # sauvegarde du masque avec un nom basé sur le nom de l'image originale
+                segmentation_mask_image.save(f"assets/Mask/mask_{os.path.basename(single_image_path)}")
+                print(f"Masque sauvegardé sous 'assets/Mask/mask_{os.path.basename(single_image_path)}'.")
+                return segmentation_mask
+
+            except Exception as e:
+                print(f"Une erreur est survenue : {e}")
+        else:
+            print("Aucune image à traiter. Vérifiez la configuration de 'image_dir' et 'max_images'.")
+
+    def segment_images_batch(self, list_of_image_paths):
+        """
+        Segmente une liste d'images en utilisant l'API Hugging Face.
+
+        Args:
+            list_of_image_paths (list): Liste des chemins vers les images.
+
+        Returns:
+            list: Liste des masques de segmentation (tableaux NumPy).
+                  Contient None si une image n'a pas pu être traitée.
+        """
+        batch_segmentations = []
+        successful_images = 0
+        successful_elapsed = 0.0
+
+        # N'oubliez pas de mettre une pause entre chaque appel API !
+        for single_image_path in list_of_image_paths:
+            image_start_time = time.perf_counter()
+            segmentation_mask = None
+            try:
+                segmentation_mask = self.process_single_image(single_image_path)
+                batch_segmentations.append(segmentation_mask)
+            except Exception as e:
+                print(f"Erreur lors du traitement de {single_image_path} : {e}")
+                batch_segmentations.append(None)
+            finally:
+                elapsed = time.perf_counter() - image_start_time
+                if segmentation_mask is not None:
+                    successful_images += 1
+                    successful_elapsed += elapsed
+                print(f"Temps de traitement de {single_image_path} : {elapsed:.2f} secondes.")
+                print(f"Coût estimé pour {single_image_path} : {elapsed * self.cost_per_second:.6f} $.")
+        if successful_images:
+            estimated_cost = successful_elapsed / successful_images * 500_000 * self.cost_per_second
+            print(f"Coût estimé pour 500 000 images (moyenne des segmentations réussies) : {estimated_cost:.2f} $.")
+        else:
+            print("Impossible d'estimer le coût pour 500 000 images : aucune segmentation réussie.")
+        return batch_segmentations
