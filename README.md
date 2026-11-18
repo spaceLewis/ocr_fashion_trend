@@ -2,6 +2,10 @@
 
 Ce projet segmente des images avec le modèle Hugging Face et compare les masques prédits aux masques de référence avec l'IoU.
 
+Consultez le [playbook opérationnel](PLAYBOOK.md) ou sa
+[version Notebook interactive](PLAYBOOK.ipynb) pour les modes d'exécution,
+les résultats attendus et le dépannage.
+
 ## Installation
 
 Depuis la racine du projet, dans PowerShell :
